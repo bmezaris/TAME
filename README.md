@@ -1,26 +1,14 @@
-# L-CAM
+# TAME
 
-This repository hosts the code and data lists for our two learning-based eXplainable AI (XAI) methods called L-CAM-Fm and L-CAM-Img, for deep convolutional neural networks (DCNN) image classifiers. Our methods receive as input an image and a class label and produce as output the image regions that the DCNN has focused on in order to infer this class. Both methods use an attention mechanism (AM), trained  end-to-end  along  with the original (frozen) DCNN, to derive class activation maps (CAMs) from the last convolutional layer’s feature maps (FMs). During training, CAMs are applied to the FMs (L-CAM-Fm) or the input image (L-CAM-Img), forcing the AM to learn the image regions explaining the DCNN’s outcome. Two widely-used evaluation metrics, Increase in Confidence (IC) and Average Drop (AD), are used for evaluation.
-- This repository contains the code for training L-CAM-Fm and L-CAM-Img, using VGG-16 or ResNet-50 as the pre-trained backbone network along with the Attention Mechanism and our selected loss function. There is also code to train the above networks with the conventional cross-entropy loss. The models files with the model architecture are named as following:
-First the name of the backbone (ResNet50 or VGG-16) and then the method's name (L-CAM-Fm or L-CAM-Img). If the model uses the cross-entropy loss (instead of our proposed loss function) there is also an A character at the end of the name, e.g. ResNet50_L_CAM_ImgA.py. There is also a variation L-CAM-Img with VGG-16 backbone where the AM's input is the 7×7 FMs after the last max pooling layer of VGG-16, in contrast to all the others models that use the last convolutional layer of the backbone. This model is named VGG16_7x7_L_CAM_Img.py.  
-- Instead of training, the user can also download the pre-trained models for L-CAM-Fm and L-CAM-Img (again using VGG-16 or ResNet-50 as the backbone network along with the Attention Mechanism and our selected loss function [here](https://drive.google.com/drive/folders/1QiwB3iEobEPnSB9NRSsmDaUAuBMiPdz2?usp=sharing). The pre-trained models are named in the same way as the models files (as explained in the previous paragraph). 
-- There is also code for evaluating our method according to two widely used evaluation metrics for DCNN explainability, Increase in Confidence (IC) and Average Drop (AD).  In the same script, Top-1 and Top-5 accuracy is as well calculated.
-- Furthermore, there is the code to evaluate the methods that are used in our paper for comparisons with L-CAM-Fm and L-CAM-Img.
-- In [L-CAM/datalist/ILSVRC](https://github.com/bmezaris/L-CAM/tree/main/datalist/ILSVRC) there are text files with annotations for training VGG-16 and ResNet-50 (VGG-16_train.txt, ResNet50_train.txt) and text files with annotations for 2000 randomly selected images to be used at the evaluation stage (Evaluation_2000.txt) for the L-CAM methods.
-- The ImageNet1K dataset images should be downloaded by the user manually.
-- This project is implemented and tested in python 3.6 and PyTorch 1.9.
-
-## Basic code requirements
-- PyTorch
-- opencv-python
-- scikit-learn
-- tqdm
-
-## Visual examples and comparison of results 
-![alt text](https://github.com/bmezaris/L-CAM/blob/main/images/superimposed.png)
+This repository hosts the code and data lists for our learning-based eXplainable AI (XAI) method called TAME, for Convolutional Neural Networks (CNN) image classifiers. Our methods receive as input an image and a class label and produce as output the image regions that the CNN has focused on in order to infer this class. TAME uses an attention mechanism (AM), trained  end-to-end  along  with the original (frozen) CNN, to derive class activation maps from feature map sets extracted from selected layers . During training, the generated attention maps of the AM are applied to the inputs. The AM weights are updated by applying backpropagation on a multi-objective loss function to optimize the appearance of the attention maps (minimize high-frequency variation and attention mask area) and minimize the cross-entropy loss. This process forces the AM to learn the image regions responsible for the CNN’s output. Two widely-used evaluation metrics, Increase in Confidence (IC) and Average Drop (AD), are used for evaluation.
+- This repository contains the code for training, evaluating and applying TAME, using VGG-16 or ResNet-50 as the pre-trained backbone network along with the Attention Mechanism and our selected loss function. There is also a guide on applying TAME to any CNN classifier.
+- Instead of training, the user can also download a pre-trained attention mechanism for the pretrained VGG-16 or ResNet-50 classifiers [here](https://drive.google.com/drive/folders/1QiwB3iEobEPnSB9NRSsmDaUAuBMiPdz2?usp=sharing).
+- In [L-CAM/datalist/ILSVRC](https://github.com/bmezaris/TAME/tree/main/datalist/ILSVRC) there are text files with annotations for training VGG-16 and ResNet-50 (VGG-16_train.txt, ResNet50_train.txt) and text files with annotations for 2000 randomly selected images to be used at the validation stage (Evaluation_2000.txt) and 2000 randomly selected images (exclusive of the previous 2000) for evaluation stage (Test_2000.txt) the L-CAM methods.
+- The ILSVRC 2012 dataset images should be downloaded by the user manually.
+- The required packages for this project are contained in requirements.txt. This project was developed with Python 3.8
 
 ## Data preparation
-Download [here](https://image-net.org/) the training and evaluation images for ImageNet1K dataset, then extract folders and sub-folders and place the extracted folders (ILSVRC2012_img_train, ILSVRC2012_img_val) in the dataset/ILSVRC2012_img_train and dataset/ILSVRC2012_img_val folders. The folder structure of the image files should look as below:
+Download [here](https://image-net.org/) the training and evaluating images for the ILSVRC 2012 dataset dataset, then extract folders and sub-folders and place the extracted folders (ILSVRC2012_img_train, ILSVRC2012_img_val) in the dataset/ILSVRC2012_img_train and dataset/ILSVRC2012_img_val folders. The folder structure of the image files should look as below:
 ```
 dataset
     └── ILSVRC2012_img_train
@@ -39,11 +27,11 @@ dataset
 ## Install
 - Clone this repository
 ~~~
-git clone https://github.com/bmezaris/L-CAM
+git clone https://github.com/bmezaris/TAME
 ~~~
 - Go to the locally saved repository path:
 ~~~
-cd L-CAM
+cd TAME
 ~~~
 - Create the snapshots folder to save the trained models:
 ~~~
@@ -57,20 +45,11 @@ mkdir snapshots
 cd scripts
 sh VGG16_train.sh 
 ~~~
-**OR**, for the VGG-16 backbone with cross-entropy loss:
-~~~
-cd scripts
-sh VGG16_train_CE.sh 
-~~~
+
 **OR**, for the ResNet-50 backbone with the selected loss function:
 ~~~
 cd scripts
 sh ResNet50_train.sh
-~~~
-**OR**, for the ResNet-50 backbone with cross-entropy loss:
-~~~
-cd scripts
-sh ResNet50_train_CE.sh 
 ~~~
 Before running any of the .sh files, set the img_dir, snapshot_dir and arch parameters inside the .sh file. For the *_CE.sh files the arch parameter must be set only with model file's names (*/L-CAM/models) with the A character at the end, for all the other .sh files the arch parameter must be set with file's names (*/L-CAM/models) without the A character at the end. The produced model will be saved in the snapshots folder. 
 
@@ -107,20 +86,20 @@ CUDA_VISIBLE_DEVICES=0 python ResNet_rise.py \
 ## Parameters
 During the training and evaluation stages the above parameters can be specified.
 
-Parameter name | Description | Type |Default Value
-| ---: | :--- | :---: | :---:
-`--root_dir` | Root directory for the project. | str| ROOT_DIR |
-`--img_dir` | Directory where the training images reside. | str| img_dir |
-`--train_list` | The path where the annotations for training reside. | str| train_list |
-`--test_list` | The path where the annotations for evaluation reside. | str| test_list |
-`--batch_size` | Selected batch size. | int| Batch_size |
-`--input_size` | Image scaling parameter: the small side of each image is resized, to become equal to this many pixels. | int| 256 |
-`--crop_size` | Image cropping parameter: each (scaled) image is cropped to a square crop_size X crop_size pixels image. | int| 224 |
-`--arch` | Architecture selected from the architectures that are avaiable in the models folder. | str | e.g. ResNet50_aux_ResNet18_TEST |
-`--lr` | The initial learning rate. | float| LR |
-`--epoch` | Number of epochs used in training process. | int| EPOCH |
-`--snapshot_dir` | Directory where the trained models are stored. | str| Snapshot_dir |
-`--percentage` | Percentage of saliency's muted pixels. | float| percent |
+|   Parameter name | Description                                                                                              | Type  |          Default Value          |
+|-----------------:|:---------------------------------------------------------------------------------------------------------|:-----:|:-------------------------------:|
+|     `--root_dir` | Root directory for the project.                                                                          |  str  |            ROOT_DIR             |
+|      `--img_dir` | Directory where the training images reside.                                                              |  str  |             img_dir             |
+|   `--train_list` | The path where the annotations for training reside.                                                      |  str  |           train_list            |
+|    `--test_list` | The path where the annotations for evaluation reside.                                                    |  str  |            test_list            |
+|   `--batch_size` | Selected batch size.                                                                                     |  int  |           Batch_size            |
+|   `--input_size` | Image scaling parameter: the small side of each image is resized, to become equal to this many pixels.   |  int  |               256               |
+|    `--crop_size` | Image cropping parameter: each (scaled) image is cropped to a square crop_size X crop_size pixels image. |  int  |               224               |
+|         `--arch` | Architecture selected from the architectures that are avaiable in the models folder.                     |  str  | e.g. ResNet50_aux_ResNet18_TEST |
+|           `--lr` | The initial learning rate.                                                                               | float |               LR                |
+|        `--epoch` | Number of epochs used in training process.                                                               |  int  |              EPOCH              |
+| `--snapshot_dir` | Directory where the trained models are stored.                                                           |  str  |          Snapshot_dir           |
+|   `--percentage` | Percentage of saliency's muted pixels.                                                                   | float |             percent             |
 
 The above parameters can be changed in the .sh files. For example:
 ~~~
