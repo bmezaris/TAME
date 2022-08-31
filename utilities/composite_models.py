@@ -166,11 +166,11 @@ class AttentionV3d2(nn.Module):
 
 
 # better than 4.1.3 in 15% mark
-class AttentionV5(nn.Module):
+class AttentionTAME(nn.Module):
     r"""The same as V3 but we use an identity block instead of a pointwise conv, and the channels don't increase"""
 
     def __init__(self, ft_size):
-        super(AttentionV5, self).__init__()
+        super(AttentionTAME, self).__init__()
         feat_height = ft_size[0][2] if ft_size[0][2] <= 56 else 56
         self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
                                                      mode='bilinear', align_corners=False)
@@ -629,7 +629,7 @@ class AttentionMech(nn.Module):
                     'V4.1.2': AttentionV4d1dd2,
                     'V3.1': AttentionV3d1,
                     'V4.1.3': AttentionV4d1dd3,
-                    'V5': AttentionV5,
+                    'V5': AttentionTAME,
                     'V3.2': AttentionV3d2,
                     'V4.1.4': AttentionV4d1dd4,
                     'V3.2.1': AttentionV3d2dd1,
@@ -638,29 +638,10 @@ class AttentionMech(nn.Module):
         self.forward = self.attn.forward
 
 
-class CondBatchNorm2d(nn.Module):
-    """Conditional Batch Norm"""
-    def __init__(self, num_features, num_conds=3):
-        super(CondBatchNorm2d, self).__init__()
-        self.num_features = num_features
-        self.bn = nn.BatchNorm2d(num_features, affine=False)
-        self.mlp = nn.Linear(num_conds, num_features * 2)
-        self.gamma = None
-        self.beta = None
-
-    def condition(self, y):
-        self.gamma, self.beta = self.mlp(y).chunk(2, 0)
-
-    def forward(self, x):
-        out = self.bn(x)
-        out = self.gamma.view(-1, self.num_features, 1, 1) * out + self.beta.view(-1, self.num_features, 1, 1)
-        return out
-
-
 class Generic(nn.Module):
     normalization = transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 
-    def __init__(self, mdl, feature_layers: List[str], attn_version: str, arr_version: str):
+    def __init__(self, mdl, feature_layers: List[str], attn_version: str):
         """Args:
                 mdl (nn.Module): the model which we would like to use for interpretability
                 feature_layers (list): the layers, as printed by get_graph_node_names,
@@ -689,23 +670,18 @@ class Generic(nn.Module):
         # Required for attention mechanism initialization
         ft_size = [o.shape for o in out.values()]
 
-        self.arr = arr_version
-        self.attn_mech = AttentionMech(attn_version, ft_size)
+        self.arr = '1-1'
         # Build Attention mechanism
-        if self.arr == 'hyper':
-            assert hasattr(self.attn_mech.attn, 'bns'),\
-                f'Version {attn_version} does not have a BN layer required by hyper mode'
-            self.attn_mech.attn.bns = \
-                nn.ModuleList([CondBatchNorm2d(channels) for channels in self.attn_mech.attn.bn_channels])
+        self.attn_mech = AttentionMech(attn_version, ft_size)
 
         # Get loss and forward training method
-        arrangement = Arrangement(arr_version, self.body, self.output)
+        arrangement = Arrangement('1-1', self.body, self.output)
         self.train_policy, self.get_loss = (arrangement.train_policy, arrangement.loss)
 
         self.a = None
         self.c = None
 
-    def forward(self, x, label=None, **kwargs):
+    def forward(self, x, label=None):
         x_norm = Generic.normalization(x)
 
         features = self.body(x_norm)
@@ -714,8 +690,6 @@ class Generic(nn.Module):
         # features now only has the feature maps since we popped the output in case we are in eval mode
 
         # Attention mechanism
-        if self.arr == 'hyper':
-            [cond_bn.condition(kwargs['coeffs']) for cond_bn in self.attn_mech.attn.bns]
 
         a, c = self.attn_mech(features)
         self.a = a
@@ -743,18 +717,7 @@ class Arrangement(nn.Module):
 
     def __init__(self, version, body, output_name):
         super(Arrangement, self).__init__()
-        arrangements = {'1-1': (self.train_policy1, self.loss1),
-                        '2-2': (self.train_policy2, self.loss2),
-                        '2-3': (self.train_policy3, self.loss3),
-                        '4-4': (self.train_policy4, self.loss4),
-                        '4-1': (self.train_policy4, self.loss1),
-                        '1-5': (self.train_policy1, self.loss5),
-                        '1-6': (self.train_policy1, self.loss6),
-                        '1-7': (self.train_policy1, self.loss7),
-                        '1-8': (self.train_policy1, self.loss8),
-                        '1-9': (self.train_policy1, self.loss9),
-                        '1-10': (self.train_policy1, self.loss10),
-                        'hyper': (self.train_policy1, self.hyper_loss)}
+        arrangements = {'1-1': (self.train_policy1, self.loss1)}
 
         self.loss_cross_entropy = nn.CrossEntropyLoss()
         self.body = body
@@ -766,15 +729,7 @@ class Arrangement(nn.Module):
         self.area_loss_power = 0.3  # lambda4
 
         self.extra_masks = None
-        if 'coeffs:' in version:
-            # e.g. : version = 'coeffs: X, Y, Z' -> coeffs = [X, Y, Z]
-            coeffs = [float(coeff) for coeff in version.split(':')[1].split(',')]
-            self.ce_coeff = coeffs[0]
-            self.area_loss_coeff = coeffs[1]
-            self.smoothness_loss_coeff = coeffs[2]
-            self.train_policy, self.loss = arrangements['1-1']
-        else:
-            self.train_policy, self.loss = arrangements[version]
+        self.train_policy, self.loss = arrangements[version]
 
     def area_loss(self, masks):
         if self.area_loss_power != 1:
@@ -797,17 +752,6 @@ class Arrangement(nn.Module):
             border = 0.
         return (x_loss + y_loss + border) / float(power * B)  # watch out, normalised by the batch size!
 
-    @staticmethod
-    def tv_loss(masks):
-        x_loss = torch.mean(torch.abs(masks[:, :, 1:, :] - masks[:, :, :-1, :]))
-        y_loss = torch.mean(torch.abs(masks[:, :, :, 1:] - masks[:, :, :, :-1]))
-        return (x_loss + y_loss) * 0.5
-
-    @staticmethod
-    def area_loss2(masks):
-        masks = torch.square(masks)
-        return torch.mean(masks)
-
     def loss1(self, logits, labels, masks):
         labels = labels.long()
         variation_loss = self.smoothness_loss_coeff * Arrangement.smoothness_loss(masks)
@@ -826,250 +770,3 @@ class Arrangement(nn.Module):
         x_masked = masks * inp
         x_norm = Generic.normalization(x_masked)
         return self.body(x_norm)[self.output_name]
-
-    def loss2(self, logits, labels, masks):
-        labels = labels.long()
-        variation_loss = self.smoothness_loss_coeff * Arrangement.smoothness_loss(masks)
-        area_loss = self.area_loss_coeff * self.area_loss(masks)
-        cross_entropies = [self.ce_coeff * self.loss_cross_entropy(logit, labels) for logit in logits]
-
-        cross_entropy = 0.75 / 3 * cross_entropies[0] + 0.75 / 3 * cross_entropies[1] + 1.5 / 3 * cross_entropies[2]
-        loss = cross_entropy + area_loss + variation_loss
-        return [loss, cross_entropy, area_loss, variation_loss]
-
-    def train_policy2(self, masks, labels, inp):
-        B, C, H, W = masks.size()
-        indexes = labels.expand(H, W, 1, B).permute(*torch.arange(masks.ndim - 1, -1, -1))
-        masks = torch.gather(masks, 1, indexes)  # select masks
-        masks = F.interpolate(masks, size=(224, 224), mode='bilinear', align_corners=False)
-        B, C, H, W = masks.size()
-        percent = lambda pc: masks.flatten(start_dim=1, end_dim=3) \
-            .quantile(pc, dim=1) \
-            .expand(H, W, 1, B) \
-            .permute(*torch.arange(masks.ndim - 1, -1, -1))
-        masks2 = masks.masked_fill(masks < percent(0.5), 0)
-        masks3 = masks.masked_fill(masks < percent(0.85), 0)
-        mask_ls = [masks, masks2, masks3]
-        x_masked_ls = [mask * inp for mask in mask_ls]
-        x_norm_ls = [Generic.normalization(x_masked) for x_masked in x_masked_ls]
-        return [self.body(x_norm)[self.output_name] for x_norm in x_norm_ls]
-
-    def loss3(self, logits, labels, masks):
-        masks = [masks] + self.extra_masks
-        labels = labels.long()
-
-        variation_loss = sum([self.smoothness_loss_coeff * Arrangement.smoothness_loss(mask) for mask in masks]) / 3
-        area_loss = sum([self.area_loss_coeff * self.area_loss(mask) for mask in masks]) / 3
-        cross_entropy = sum([self.ce_coeff * self.loss_cross_entropy(logit, labels) for logit in logits]) / 3
-
-        loss = sum(cross_entropy) / 3 + sum(area_loss) / 3 + sum(variation_loss) / 3
-        return [loss, cross_entropy, area_loss, variation_loss]
-
-    def train_policy3(self, masks, labels, inp):
-        B, C, H, W = masks.size()
-        percent = lambda pc: masks.flatten(start_dim=2, end_dim=3) \
-            .quantile(pc, dim=2) \
-            .expand(H, W, B, C) \
-            .permute(2, 3, 0, 1)
-        self.extra_masks = [masks.masked_fill(masks < percent(pc), 0) for pc in [0.5, 0.85]]
-        return self.train_policy2(masks, labels, inp)
-
-    def loss4(self, logits, labels, masks):
-        masks = self.extra_masks
-        return self.loss1(logits, labels, masks)
-
-    def train_policy4(self, masks, labels, inp):
-        B, C, H, W = masks.size()
-        percent = lambda pc: masks.flatten(start_dim=2, end_dim=3) \
-            .quantile(pc, dim=2) \
-            .expand(H, W, B, C) \
-            .permute(2, 3, 0, 1)
-        self.extra_masks = masks.masked_fill(masks < percent(0.5), 0)
-        return self.train_policy1(self.extra_masks, labels, inp)
-
-    def loss5(self, logits, labels, masks):
-        if not hasattr(self, 'L1'):
-            self.L1 = 1
-            self.L2 = 1
-            self.L3 = 1
-
-        labels = labels.long()
-        variation_loss = Arrangement.tv_loss(masks)
-        area_loss = Arrangement.area_loss2(masks)
-        cross_entropy = self.loss_cross_entropy(logits, labels)
-
-        beta = 0.1
-        coeffs = nn.functional.softmax(
-            torch.tensor([beta * (variation_loss - self.L1),
-                          beta * (area_loss - self.L2),
-                          beta * (cross_entropy - self.L3)], device='cuda'),
-            dim=0)
-        self.L1 = variation_loss
-        self.L2 = area_loss
-        self.L3 = cross_entropy
-        loss = coeffs[0] * variation_loss + coeffs[1] * area_loss + coeffs[2] * cross_entropy
-
-        # print('loss',loss)
-        # print('ce',cross_entropy)
-        # print('area_loss',area_loss)
-        # print('var_loss',variation_loss)
-        # print(f"c0: {coeffs[0]}, c1: {coeffs[1]}, c2: {coeffs[2]}")
-
-        return [loss, coeffs[2] * cross_entropy, coeffs[1] * area_loss, coeffs[0] * variation_loss]
-
-    def loss6(self, logits, labels, masks):
-
-        labels = labels.long()
-        variation_loss = Arrangement.tv_loss(masks)
-        area_loss = Arrangement.area_loss2(masks)
-        cross_entropy = self.loss_cross_entropy(logits, labels)
-
-        loss = variation_loss + area_loss + cross_entropy
-
-        return [loss, cross_entropy, area_loss, variation_loss]
-
-    def loss7(self, logits, labels, masks):
-        if not hasattr(self, 'L1'):
-            self.L1 = 1
-            self.L2 = 1
-            self.L3 = 1
-
-        labels = labels.long()
-        variation_loss = Arrangement.smoothness_loss(masks)
-        area_loss = self.area_loss(masks)
-        cross_entropy = self.loss_cross_entropy(logits, labels)
-
-        beta = 0.1
-        with torch.no_grad():
-            coeffs = nn.functional.softmax(
-                torch.tensor([torch.log(variation_loss) + beta * (variation_loss - self.L1),
-                              torch.log(area_loss) + beta * (area_loss - self.L2),
-                              torch.log(cross_entropy) + beta * (cross_entropy - self.L3)], device='cuda'),
-                dim=0)
-
-        self.L1 = variation_loss
-        self.L2 = area_loss
-        self.L3 = cross_entropy
-        loss = coeffs[0] * variation_loss + coeffs[1] * area_loss + coeffs[2] * cross_entropy
-
-        # print('loss',loss)
-        # print('ce',cross_entropy)
-        # print('area_loss',area_loss)
-        # print('var_loss',variation_loss)
-        # print(f"c0: {coeffs[0]}, c1: {coeffs[1]}, c2: {coeffs[2]}")
-
-        return [loss, coeffs[2] * cross_entropy, coeffs[1] * area_loss, coeffs[0] * variation_loss]
-
-    def loss8(self, logits, labels, masks):
-        if not hasattr(self, 'L1'):
-            self.L1 = 1
-            self.L2 = 1
-            self.L3 = 1
-
-        labels = labels.long()
-        variation_loss = Arrangement.tv_loss(masks)
-        area_loss = Arrangement.area_loss2(masks)
-        cross_entropy = self.loss_cross_entropy(logits, labels)
-
-        beta = 0.1
-
-        coeffs = nn.functional.softmax(
-            torch.tensor([torch.log(variation_loss) + beta * (variation_loss - self.L1),
-                          torch.log(area_loss) + beta * (area_loss - self.L2),
-                          torch.log(cross_entropy) + beta * (cross_entropy - self.L3)], device='cuda'),
-            dim=0)
-        self.L1 = variation_loss
-        self.L2 = area_loss
-        self.L3 = cross_entropy
-        loss = coeffs[0] * variation_loss + coeffs[1] * area_loss + coeffs[2] * cross_entropy
-
-        # print('loss',loss)
-        # print('ce',cross_entropy)
-        # print('area_loss',area_loss)
-        # print('var_loss',variation_loss)
-        # print(f"c0: {coeffs[0]}, c1: {coeffs[1]}, c2: {coeffs[2]}")
-
-        return [loss, coeffs[2] * cross_entropy, coeffs[1] * area_loss, coeffs[0] * variation_loss]
-
-    def loss9(self, logits, labels, masks):
-        if not hasattr(self, 'L1'):
-            self.L1 = 1
-            self.L2 = 1
-            self.L3 = 1
-
-        labels = labels.long()
-        variation_loss = Arrangement.smoothness_loss(masks)
-        area_loss = self.area_loss(masks)
-        cross_entropy = self.loss_cross_entropy(logits, labels)
-
-        beta = 0.1
-        coeffs = nn.functional.softmax(
-            torch.tensor([beta * (variation_loss - self.L1),
-                          beta * (area_loss - self.L2),
-                          beta * (cross_entropy - self.L3)], device='cuda'),
-            dim=0)
-        self.L1 = variation_loss
-        self.L2 = area_loss
-        self.L3 = cross_entropy
-        loss = coeffs[0] * variation_loss + coeffs[1] * area_loss + coeffs[2] * cross_entropy
-
-        # print('loss',loss)
-        # print('ce',cross_entropy)
-        # print('area_loss',area_loss)
-        # print('var_loss',variation_loss)
-        # print(f"c0: {coeffs[0]}, c1: {coeffs[1]}, c2: {coeffs[2]}")
-
-        return [loss, coeffs[2] * cross_entropy, coeffs[1] * area_loss, coeffs[0] * variation_loss]
-
-    def loss10(self, logits, labels, masks):
-
-        beta = 1
-        # Initialize memory for this loss
-        # Two datapoints memory
-        if not hasattr(self, 'L1'):
-            self.L1 = 1
-            self.L2 = 1
-            self.L3 = 1
-            self.coeffs = torch.tensor([1., 1., 1.], device='cuda')
-            self.count = 1
-
-        labels = labels.long()
-        variation_loss = Arrangement.smoothness_loss(masks)
-        area_loss = self.area_loss(masks)
-        cross_entropy = self.loss_cross_entropy(logits, labels)
-
-        if self.count == 0:
-            diffs = torch.tensor([variation_loss - self.L1,
-                                  area_loss - self.L2,
-                                  cross_entropy - self.L3], device='cuda')
-            diffs = torch.nn.functional.normalize(diffs, p=1, dim=0)
-            self.coeffs = nn.functional.softmax(beta * diffs, dim=0)
-            self.count = 1
-
-        elif self.count == 1:
-            self.L1 = variation_loss
-            self.L2 = area_loss
-            self.L3 = cross_entropy
-            self.count -= 1
-
-        loss = self.coeffs[0] * variation_loss + self.coeffs[1] * area_loss + self.coeffs[2] * cross_entropy
-
-        # print('loss',loss)
-        # print('ce',cross_entropy)
-        # print('area_loss',area_loss)
-        # print('var_loss',variation_loss)
-        # print(f"c0: {coeffs[0]}, c1: {coeffs[1]}, c2: {coeffs[2]}")
-
-        return [loss, self.coeffs[2] * cross_entropy, self.coeffs[1] * area_loss, self.coeffs[0] * variation_loss]
-
-    def hyper_loss(self, logits, labels, masks, coeffs):
-        labels = labels.long()
-        cross_entropy = coeffs[0] * self.loss_cross_entropy(logits, labels)
-        area_loss = coeffs[1] * self.area_loss(masks)
-        variation_loss = coeffs[2] * Arrangement.smoothness_loss(masks)
-
-        loss = cross_entropy + area_loss + variation_loss
-
-        return [loss, cross_entropy, area_loss, variation_loss]
-
-
