@@ -6,14 +6,16 @@ import time
 
 import torch
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 import torchvision.models as models
+from tqdm.auto import tqdm
 
-from utilities.composite_models import Generic
-from utilities.avg_meter import AverageMeter
-from utilities import metrics
-from utilities.load_data import data_loader
-from utilities.restore import restore
-from utilities.schedule import schedule
+from composite_models import Generic
+from avg_meter import AverageMeter
+import metrics
+from load_data import data_loader
+from restore import restore
+from schedule import schedule
 
 # Paths
 os.chdir('../')
@@ -34,6 +36,7 @@ num_workers = 1
 models_dict = {'resnet50': 0,
                'vgg16': 1}
 
+
 def get_arguments():
     parser = argparse.ArgumentParser(description='Att_CS_sigmoidSaliency')
     parser.add_argument("--root-dir", type=str, default=ROOT_DIR, help='Root dir for the project')
@@ -46,9 +49,10 @@ def get_arguments():
     parser.add_argument("--crop-size", type=int, default=224)
     parser.add_argument("--num-workers", type=int, default=num_workers)
     parser.add_argument("--resume", type=str, default='True')
-    parser.add_argument("--arch", type=str, default='VGG16_L_CAM_Img')
+    parser.add_argument("--arch", type=str, default='')
     parser.add_argument("--model", type=str, default='vgg16')
     parser.add_argument("--layers", type=str, default='features.29')
+    parser.add_argument("--freeze-bn", type=str, default='false', choices=['true', 'false'])
     parser.add_argument("--version", type=str, default='V1')
     parser.add_argument("--arrangement", type=str, default='1-1')
     parser.add_argument("--base-lr", type=float, default=3e-7)
@@ -57,7 +61,10 @@ def get_arguments():
     parser.add_argument("--epoch", type=int, default=EPOCH)
     parser.add_argument("--current-epoch", type=int, default=0)
     parser.add_argument("--global-counter", type=int, default=0)
-    parser.add_argument("--schedule", type=str, default='step')
+    parser.add_argument("--schedule", type=str, default='onecycle', choices=['step', 'cyclic', 'onecycle'])
+    parser.add_argument("--optim", type=str, default='SGD', choices=['SGD', 'AdamW'])
+    parser.add_argument("--wd", type=float, default=5e-4)
+    parser.add_argument("--b2", type=float, default=0.999)
     return parser.parse_args()
 
 
@@ -80,9 +87,7 @@ def get_model(args):
 
 
 def train(args):
-    if args.current_epoch == args.epoch:
-        print('Training Finished')
-        return
+
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -98,29 +103,46 @@ def train(args):
     weights = [weight for name, weight in model.attn_mech.named_parameters() if 'weight' in name]
     biases = [bias for name, bias in model.attn_mech.named_parameters() if 'bias' in name]
 
-    # noinspection PyArgumentList
     torch.autograd.set_detect_anomaly(True)
-    optimizer = optim.SGD([{'params': weights, 'lr': args.base_lr, 'weight_decay': 0.0005},
-                           {'params': biases, 'lr': args.base_lr * 2}],
-                          momentum=0.9, nesterov=True)
 
-    args.snapshot_dir = os.path.join(args.snapshot_dir, f'{args.arch}_{args.version}_({args.arrangement})', '')
+    if args.optim == "SGD":
+        # noinspection PyArgumentList
+        optimizer = optim.SGD([{'params': weights, 'lr': args.base_lr, 'weight_decay': args.wd},
+                               {'params': biases, 'lr': args.base_lr * 2}],
+                              momentum=0.9, nesterov=True)
+    else:
+        optimizer = optim.AdamW(model.attn_mech.parameters(),
+                                lr=args.base_lr,
+                                betas=(0.9, args.b2),
+                                weight_decay=args.wd)
+
+    args.snapshot_dir = os.path.join(args.snapshot_dir,
+                                     f'{args.model}_{args.version}{args.arch}', '')
     os.makedirs(args.snapshot_dir, exist_ok=True)
     if args.resume == 'True':
         restore(args, model, optimizer)
+        if args.current_epoch == args.epoch:
+            print('Training Finished')
+            return
 
     model.requires_grad_(requires_grad=False)
     model.attn_mech.requires_grad_()
 
-    model.train()
+    if args.freeze_bn == 'true':
+        model.train()
+        model.body.eval()
+    else:
+        model.train()
 
+    if args.train_list != train_list:
+        args.train_list = os.path.join(ROOT_DIR, 'datalist', 'ILSVRC', args.train_list)
     train_loader = data_loader(args)
     steps_per_epoch = len(train_loader)
 
-    with open(os.path.join(args.snapshot_dir, 'train_record.txt'), 'a') as fw:
+    with open(os.path.join(args.snapshot_dir, 'train_record.json'), 'a') as fw:
         config = json.dumps(vars(args), indent=4, separators=(',', ':'))
         fw.write(config)
-        fw.write('\nepoch,loss,losses_meanMask,losses_variationMask,losses_ce,pred@1,pred@5, LR1, LR2\n')
+        fw.write('\n\n')
 
     total_epoch = args.epoch
     global_counter = args.global_counter
@@ -131,8 +153,13 @@ def train(args):
     scheduler = schedule(args, optimizer, steps_per_epoch)
 
     end = time.perf_counter()
-    max_iter = total_epoch * len(train_loader)
+    max_iter = total_epoch * steps_per_epoch
     print('Max iter:', max_iter)
+
+    # tensorboard logger
+    writer = SummaryWriter(
+        log_dir=f'snapshots/data/logs/{args.model}_{args.version}{args.arch}',
+        purge_step=steps_per_epoch * current_epoch)
 
     # Epoch loop
     while current_epoch < total_epoch:
@@ -144,26 +171,38 @@ def train(args):
         top5.reset()
         batch_time.reset()
         disp_time = time.perf_counter()
-
-        it = 0
-
-        sample_freq = 50
+        sample_freq = 1000
         samples_interval = int(steps_per_epoch / sample_freq)
 
         # Batch loop
-        for idx, dat in enumerate(train_loader):
-            it = it + 1
+        tq_loader = tqdm(train_loader,
+                         desc=f'Epoch {current_epoch}',
+                         unit='batches',
+                         bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [Batch ETA: {remaining}, {rate_fmt}{postfix}]',
+                         miniters=sample_freq/10)
+        for idx, dat in enumerate(tq_loader):
             imgs, labels = dat
-            global_counter += 1
             imgs, labels = imgs.cuda(), labels.cuda()
 
             # forward pass
-            logits = model(imgs, labels)
-            masks = model.get_a(labels.long())
 
-            # loss_val,loss_ce_val,loss_ce_trans_val,loss_meanMask_val,loss_variationMask_val = model.get_loss(
-            # logits, label_var, masks[0])
-            loss_val, loss_ce_val, loss_meanMask_val, loss_variationMask_val = model.get_loss(logits, labels, masks)
+            if args.arrangement == 'hyper':
+                var = 2 * torch.rand(1, device='cuda') - 1  # we vary between -1 and 1
+                ce_coeff = 1.5 + 0.5 * var  # lambda3
+                area_coeff = 1.75 + 1.25 * var  # lambda2
+                var_coeff = 0.0125 + 0.0075 * var  # lambda1
+                coeffs = torch.tensor([ce_coeff, area_coeff, var_coeff], device='cuda')
+                logits = model(imgs, labels, coeffs=coeffs)
+                masks = model.get_a(labels.long())
+                loss_val, loss_ce_val, loss_meanMask_val, loss_variationMask_val = \
+                    model.get_loss(logits, labels, masks, coeffs)
+
+            else:
+                if idx == 0:
+                    writer.add_graph(model, [imgs, labels])
+                logits = model(imgs, labels)
+                masks = model.get_a(labels.long())
+                loss_val, loss_ce_val, loss_meanMask_val, loss_variationMask_val = model.get_loss(logits, labels, masks)
 
             # gradients that aren't computed are set to None
             optimizer.zero_grad(set_to_none=True)
@@ -187,30 +226,34 @@ def train(args):
             losses.update(loss_val.item(), imgs.size()[0])
             losses_meanMask.update(loss_meanMask_val.item(), imgs.size()[0])
             losses_variationMask.update(loss_variationMask_val.item(), imgs.size()[0])
-            # losses_ce_trans.update(loss_ce_trans_val.data, img.size()[0])
             losses_ce.update(loss_ce_val.item(), imgs.size()[0])
             batch_time.update(time.perf_counter() - end)
             end = time.perf_counter()
 
-            # every disp_interval batches we print this
+            # every samples_interval batches we print this
             if global_counter % samples_interval == 0:
-                disp_time = time.perf_counter() - disp_time
-                eta_seconds = ((total_epoch - current_epoch - 1) * steps_per_epoch + (
-                        steps_per_epoch - idx)) * batch_time.avg
+                eta_seconds = ((total_epoch - current_epoch) * steps_per_epoch + (
+                            steps_per_epoch - idx)) * batch_time.avg
                 eta_str = (datetime.timedelta(seconds=int(eta_seconds)))
-                eta_seconds_epoch = steps_per_epoch * batch_time.avg
-                eta_str_epoch = (datetime.timedelta(seconds=int(eta_seconds_epoch)))
-                print(f'Epoch: [{current_epoch}][{global_counter % len(train_loader)}/{len(train_loader)}]\t'
-                      f'Batch Time {batch_time.avg:.3f}s\t'
-                      f'Disp Time {disp_time:.0f}s\t'
-                      f'ETA {eta_str} ({eta_str_epoch})\t'
-                      f'Total Loss: {losses.avg:.3f}\t'
-                      f'Mean Loss: {losses_meanMask.avg:.3f}\t'
-                      f'Var Loss: {losses_variationMask.avg:.4f}\t'
-                      f'CE Loss: {losses_ce.avg:.4f}\t'
-                      f'Prec@1 {top1.avg:.0f}%\t'
-                      f'Prec@5 {top5.avg:.0f}%\t')
-                disp_time = time.perf_counter()
+                postfix = {'ETA': eta_str, 'Total Loss': losses.avg, 'CE Loss': losses_ce.avg,
+                           'Mean Loss': losses_meanMask.avg, 'Var Loss': losses_variationMask.avg, }
+                tq_loader.set_postfix(postfix)
+
+                writer.add_scalars('Losses', {'Total Loss': losses.avg,
+                                              'Mean Loss': losses_meanMask.avg,
+                                              'Var Loss': losses_variationMask.avg,
+                                              'CE Loss': losses_ce.avg}, global_step=global_counter)
+
+                writer.add_scalars('Precision', {'Top 1': top1.avg,
+                                                 'Top 5': top5.avg}, global_step=global_counter)
+                if args.optim == "SGD":
+                    [lr1, lr2] = scheduler.get_last_lr()
+                    writer.add_scalars('LR', {'Weight': lr1,
+                                              'Bias': lr2}, global_step=global_counter)
+                else:
+                    lr = scheduler.get_last_lr()
+                    writer.add_scalar('LR', lr[0], global_counter)
+                writer.flush()
                 losses.reset()
                 losses_meanMask.reset()
                 losses_variationMask.reset()
@@ -218,26 +261,22 @@ def train(args):
                 top1.reset()
                 top5.reset()
 
+            global_counter += 1
+
+        current_epoch += 1
+        # first epoch: 1, during training it is current_epoch == 0, saved as epoch_1 ...
+        # last epoch: 8, during training it is current_epoch ==7, saved as epoch_8
         save_checkpoint(args,
                         {
                             'epoch': current_epoch,
-                            'arch': args.arch,
                             'global_counter': global_counter,
                             'state_dict': model.attn_mech.state_dict(),
                             'optimizer': optimizer.state_dict()
                         },
-                        filename=f'epoch_{current_epoch}.pt'
-                        )
-
-        with open(os.path.join(args.snapshot_dir, 'train_record.txt'), 'a') as fw:
-            fw.write(f'{current_epoch}, {losses.avg:.4f}, {losses_meanMask.avg:.4f}, {losses_variationMask.avg:.4f},'
-                     f'{losses_ce.avg:.4f}, {top1.avg:.3f}, {top5.avg:.3f},'
-                     f'{scheduler.get_last_lr()[0]}, {scheduler.get_last_lr()[1]}\n')
+                        filename=f'epoch_{current_epoch}.pt')
 
         if args.schedule == 'step':
             scheduler.step()
-
-        current_epoch += 1
 
 
 def main():

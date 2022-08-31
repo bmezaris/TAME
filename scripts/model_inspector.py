@@ -1,10 +1,9 @@
 import json
 
-import torch
 from torchvision import models
 from torchvision.models.feature_extraction import get_graph_node_names
 
-from utilities.composite_models import Generic
+from composite_models import Generic
 
 mdl = models.vgg16(pretrained=True)
 

@@ -9,11 +9,11 @@ import torch.nn.functional as F
 import torchvision.models as models
 from tqdm import tqdm
 
-from utilities.composite_models import Generic
-from utilities import metrics
-from utilities.avg_meter import AverageMeter
-from utilities.load_data import data_loader
-from utilities.restore import restore
+from composite_models import Generic
+import metrics
+from avg_meter import AverageMeter
+from load_data import data_loader
+from restore import restore
 
 # Paths
 os.chdir('../')

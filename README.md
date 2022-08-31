@@ -2,13 +2,13 @@
 
 This repository hosts the code and data lists for our learning-based eXplainable AI (XAI) method called TAME, for Convolutional Neural Networks (CNN) image classifiers. Our methods receive as input an image and a class label and produce as output the image regions that the CNN has focused on in order to infer this class. TAME uses an attention mechanism (AM), trained  end-to-end  along  with the original (frozen) CNN, to derive class activation maps from feature map sets extracted from selected layers . During training, the generated attention maps of the AM are applied to the inputs. The AM weights are updated by applying backpropagation on a multi-objective loss function to optimize the appearance of the attention maps (minimize high-frequency variation and attention mask area) and minimize the cross-entropy loss. This process forces the AM to learn the image regions responsible for the CNN’s output. Two widely-used evaluation metrics, Increase in Confidence (IC) and Average Drop (AD), are used for evaluation.
 - This repository contains the code for training, evaluating and applying TAME, using VGG-16 or ResNet-50 as the pre-trained backbone network along with the Attention Mechanism and our selected loss function. There is also a guide on applying TAME to any CNN classifier.
-- Instead of training, the user can also download a pre-trained attention mechanism for the pretrained VGG-16 or ResNet-50 classifiers [here](https://drive.google.com/drive/folders/1QiwB3iEobEPnSB9NRSsmDaUAuBMiPdz2?usp=sharing).
-- In [L-CAM/datalist/ILSVRC](https://github.com/bmezaris/TAME/tree/main/datalist/ILSVRC) there are text files with annotations for training VGG-16 and ResNet-50 (VGG-16_train.txt, ResNet50_train.txt) and text files with annotations for 2000 randomly selected images to be used at the validation stage (Evaluation_2000.txt) and 2000 randomly selected images (exclusive of the previous 2000) for evaluation stage (Test_2000.txt) the L-CAM methods.
+- Instead of training, the user can also use a pretrained attention mechanism for the pretrained VGG-16 or ResNet-50 classifiers in [TAME/snapshot/](https://github.com/bmezaris/TAME/tree/main/snapshots/).
+- In [TAME/datalist/ILSVRC](https://github.com/bmezaris/TAME/tree/main/datalist/ILSVRC) there are text files with annotations for training VGG-16 and ResNet-50 (VGG-16_train.txt, ResNet50_train.txt) and text files with annotations for 2000 randomly selected images to be used at the validation stage (Evaluation_2000.txt) and 2000 randomly selected images (exclusive of the previous 2000) for the evaluation stage (Test_2000.txt) the L-CAM methods.
 - The ILSVRC 2012 dataset images should be downloaded by the user manually.
 - The required packages for this project are contained in requirements.txt. This project was developed with Python 3.8
 
 ## Data preparation
-Download [here](https://image-net.org/) the training and evaluating images for the ILSVRC 2012 dataset dataset, then extract folders and sub-folders and place the extracted folders (ILSVRC2012_img_train, ILSVRC2012_img_val) in the dataset/ILSVRC2012_img_train and dataset/ILSVRC2012_img_val folders. The folder structure of the image files should look as below:
+Download [here](https://image-net.org/) the training and evaluating images for the ILSVRC 2012 dataset, then extract folders and sub-folders and place the extracted folders (ILSVRC2012_img_train, ILSVRC2012_img_val) in the dataset/ILSVRC2012_img_train and dataset/ILSVRC2012_img_val folders. The folder structure of the image files should look like this:
 ```
 dataset
     └── ILSVRC2012_img_train
@@ -23,9 +23,11 @@ dataset
         ├── ILSVRC2012_val_00000002.JPEG
         └── ...
 ```
+If you have already downloaded the ILSVRC 2012 dataset and don't want to change its location, edit the paths in the file scripts/bash scripts/pc_info.sh to the location of your dataset.
 
-## Install
-- Clone this repository
+## Initial Setup
+Check that you have a working Python 3 and pip installation before proceeding.
+- Clone this repository:
 ~~~
 git clone https://github.com/bmezaris/TAME
 ~~~
@@ -33,17 +35,30 @@ git clone https://github.com/bmezaris/TAME
 ~~~
 cd TAME
 ~~~
-- Create the snapshots folder to save the trained models:
+- Create and activate a virtual environment:
 ~~~
-mkdir snapshots
+python3 -m venv ./venv
+. /venv/bin/activate
 ~~~
+- Install project requirements:
+~~~
+pip install -r requirements.txt
+~~~
+Note: you may have to install the libraries torch and torchvision separately. Follow the pip instructions [here](https://pytorch.org/get-started/locally/).
+
+## Usage
+You can generate explanation maps with the pretrained attention module:
+~~~
+cd "TAME/scripts/bash scripts" 
+. get_mask.sh <image_name> <label>
+~~~
+The image will be searched in the images directory. `image_name` should contain the file extension as well. If no `image_name` and `label` are provided, runs default test with image `162_166.JPEG` and label `162`.
 
 ## Training
-
-- To train from scratch VGG-16 or ResNet-50, run for the VGG-16 backbone with the selected loss function:
+- To train TAME on VGG-16 or ResNet-50 from scratch, run:
 ~~~
-cd scripts
-sh VGG16_train.sh 
+cd "scripts/bash scripts"
+. job.sh 
 ~~~
 
 **OR**, for the ResNet-50 backbone with the selected loss function:
@@ -54,7 +69,7 @@ sh ResNet50_train.sh
 Before running any of the .sh files, set the img_dir, snapshot_dir and arch parameters inside the .sh file. For the *_CE.sh files the arch parameter must be set only with model file's names (*/L-CAM/models) with the A character at the end, for all the other .sh files the arch parameter must be set with file's names (*/L-CAM/models) without the A character at the end. The produced model will be saved in the snapshots folder. 
 
 ## Evaluation of L-CAM-Fm and L-CAM-Img
-- To evaluate the model, download the pretrained models that are available in this [GoogleDrive](https://drive.google.com/drive/folders/1QiwB3iEobEPnSB9NRSsmDaUAuBMiPdz2?usp=sharing), and place the downloaded folders (VGG16_L_CAM_Img, VGG16_L_CAM_Fm, VGG16_7x7_L_CAM_Img, ResNet50_L_CAM_Fm, ResNet50_L_CAM_Img) in the snapshots folder; otherwise, use your own trained model that is placed in the snapshots folder.
+- To evaluate the model, download the pretrained models that are available in this [Google Drive](https://drive.google.com/drive/folders/1Urn-e4Aj00vyo4LP0qW0S-lfM-VYdZa_?usp=sharing), and place the downloaded zip files (resnet50_V5.zip,vgg16_V5.zip) in the snapshots folder and extract them; otherwise, use your own trained model that is placed in the snapshots folder.
 
 - Run the commands below to calculate Increase in Confidence (IC) and Average Drop (AD), if using the VGG-16 backbone:
 ~~~

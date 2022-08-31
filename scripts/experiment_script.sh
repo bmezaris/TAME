@@ -28,14 +28,9 @@ GAMMA="0.95"
 (
 cd ../
 
-tensorboard dev upload \
-  --logdir "snapshots/data/logs/${MODEL}_${VER}${ARCH}" \
-  --name "${MODEL}_${VER}${ARCH}" \
-  &
-) &> /dev/null
 
 (
-CUDA_VISIBLE_DEVICES=0 python t_train_script.py \
+CUDA_VISIBLE_DEVICES=0 python train_script.py \
 	--img-dir=$IMGDIR \
 	--num-workers=4 \
 	--train-list=$TRAIN \

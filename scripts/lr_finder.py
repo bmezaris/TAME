@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-import traceback
 
 import numpy as np
 import torch
@@ -9,8 +8,8 @@ import torch.optim as optim
 import torchvision.models as models
 from tqdm.auto import tqdm
 
-from utilities.composite_models import Generic
-from utilities.load_data import data_loader
+from composite_models import Generic
+from load_data import data_loader
 
 # Paths
 os.chdir('../')
