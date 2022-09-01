@@ -6,8 +6,6 @@ import time
 
 import torch
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
-import torchvision.models as models
 from tqdm.auto import tqdm
 
 from utilities.model_prep import model_prep
@@ -44,7 +42,8 @@ def get_arguments():
     parser.add_argument("--num-workers", type=int, default=num_workers)
     parser.add_argument("--resume", type=str, default='True')
     parser.add_argument("--model", type=str, default='vgg16')
-    parser.add_argument("--version", type=str, default='TAME')
+    parser.add_argument("--version", type=str, default='TAME',
+                        choices=['TAME', 'Noskipconnection', 'NoskipNobatchnorm', 'Sigmoidinfeaturebranch'])
     parser.add_argument("--layers", type=str, default='features.16 features.23 features.30')
     parser.add_argument("--max-lr", type=float, default=5e-5)
     parser.add_argument("--epoch", type=int, default=EPOCH)
@@ -89,15 +88,15 @@ def train(args):
     optimizer = optim.SGD([{'params': weights, 'lr': 1e-7, 'weight_decay': args.wd},
                            {'params': biases, 'lr': 1e-7 * 2}],
                           momentum=0.9, nesterov=True)
-    if args.restore_dir != '':
-        args.snapshot_dir = args.restore_dir
+    if args.restore_from != '':
+        args.snapshot_dir = args.restore_from
     else:
         args.snapshot_dir = os.path.join(snapshot_dir,
                                          f'{args.model}_{args.version}', '')
     os.makedirs(args.snapshot_dir, exist_ok=True)
     if args.resume == 'True':
         restore(args, model, optimizer)
-        if args.current_epoch == args.epoch:
+        if args.current_epoch > args.epoch:
             print('Training Finished')
             return
 
@@ -170,8 +169,8 @@ def train(args):
 
             logits1 = torch.squeeze(logits)
             prec1_1, prec5_1 = metrics.accuracy(logits1, labels.long(), topk=(1, 5))
-            top1.update(prec1_1[0], imgs.size()[0])
-            top5.update(prec5_1[0], imgs.size()[0])
+            top1.update(prec1_1[0].item(), imgs.size()[0])
+            top5.update(prec5_1[0].item(), imgs.size()[0])
 
             # imgs.size()[0] is simply the batch size
             losses.update(loss_val.item(), imgs.size()[0])

@@ -1,20 +1,20 @@
 # checked, should be working correctly
 
 import argparse
+import json
 import os
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torchvision.models as models
 from tqdm import tqdm
 
-from composite_models import Generic
-import metrics
-from avg_meter import AverageMeter
-from load_data import data_loader
-from model_prep import model_prep
-from restore import restore
+from utilities import metrics
+from utilities.avg_meter import AverageMeter
+from utilities.composite_models import Generic
+from utilities.load_data import data_loader
+from utilities.model_prep import model_prep
+from utilities.restore import restore
 
 # Paths
 os.chdir('../')
@@ -34,10 +34,10 @@ def get_arguments():
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--input-size", type=int, default=256)
     parser.add_argument("--crop-size", type=int, default=224)
-    parser.add_argument("--dataset", type=str, default='imagenet')
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--model", type=str, default='vgg16')
-    parser.add_argument("--version", type=str, default='TAME')
+    parser.add_argument("--version", type=str, default='TAME',
+                        choices=['TAME', 'Noskipconnection', 'NoskipNobatchnorm', 'Sigmoidinfeaturebranch'])
     parser.add_argument("--layers", type=str, default='features.16 features.23 features.30')
     parser.add_argument("--global-counter", type=int, default=0)
     parser.add_argument("--start-epoch", type=int, default=1)
@@ -55,6 +55,8 @@ def get_model(args):
 
 def main():
     args = get_arguments()
+    print('Running parameters:\n')
+    print(json.dumps(vars(args), indent=4))
 
     args.test_list = os.path.join(ROOT_DIR, 'datalist', 'ILSVRC', args.test_list)
 

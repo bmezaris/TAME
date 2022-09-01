@@ -9,8 +9,8 @@ export TRAIN=ResNet50_train.txt
 
 export MLR=1e-4
 export EPOCHS=8
+export BSIZE=32
 
-# export BSIZE=8
 # export VERSION="TAME"
 # export WD=
 # export LAYERS=

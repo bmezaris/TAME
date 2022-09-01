@@ -3,10 +3,10 @@
 (
 . pc_info.sh
 
-export MLR="1e-3"
+export MLR=1e-3
 export EPOCHS=8
+export BSIZE=32
 
-# export BSIZE=8
 # export VERSION="TAME"
 # export WD=
 # export LAYERS=

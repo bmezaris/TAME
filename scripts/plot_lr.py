@@ -111,6 +111,7 @@ def main():
                 file_list.append((entry.name, entry.path))
 
     lr_save_dir = os.path.join(root_dir, 'snapshots', 'data', 'LR figs')
+    os.makedirs(lr_save_dir, exist_ok=True)
     compare = input("Do you want to compare multiple graphs? [y/n]\n")
     window = input("Do you want to also show the moving average? If so, input window size:\n")
     save = input("Do you want to save the figure? [y/n]\n")

@@ -11,7 +11,7 @@ CUDA_VISIBLE_DEVICES=0 python lr_finder.py \
 	--layers="${LAYERS:="features.16 features.23 features.30"}" \
 	--wd=${WD:=5e-4} \
 	--version="${VERSION:="TAME"}" \
-	--batch-size=${BSIZE:=8} \
+	--batch-size=${BSIZE:=32} \
 
 exit 0
 )

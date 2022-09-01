@@ -7,9 +7,8 @@ export MODEL=resnet50
 export LAYERS="layer2 layer3 layer4"
 export TRAIN=ResNet50_train.txt
 
-export EPOCHS=8
+export BSIZE=32
 
-# export BSIZE=8
 # export VERSION="TAME"
 # export WD=
 # export LAYERS=

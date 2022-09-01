@@ -24,12 +24,14 @@ print('Project Root Dir:', ROOT_DIR)
 snapshot_dir = os.path.join(ROOT_DIR, 'snapshots')
 img_dir = os.path.join(ROOT_DIR, 'images')
 
+
 def get_arguments():
     parser = argparse.ArgumentParser(description='Generate mask for a given image-label pair with a given model')
     parser.add_argument("--snapshot_dir", type=str, default=snapshot_dir)
-    parser.add_argument("--restore-dir", type=str, default='')
+    parser.add_argument("--restore-from", type=str, default='')
     parser.add_argument("--model", type=str, default='vgg16')
-    parser.add_argument("--version", type=str, default='TAME')
+    parser.add_argument("--version", type=str, default='TAME',
+                        choices=['TAME', 'Noskipconnection', 'NoskipNobatchnorm', 'Sigmoidinfeaturebranch'])
     parser.add_argument("--layers", type=str, default='features.16 features.23 features.30')
     parser.add_argument("--name", type=str, default='162_166.JPEG')
     parser.add_argument("--label", type=int, default=162)
@@ -75,7 +77,7 @@ def main():
     im = tsfm_val(img).unsqueeze(0).cuda()
     img = tsfm(img)
     img_name = os.path.splitext(img_name)
-    img.save(os.path.join(heatmap_dir, f"{img_name[0]}_{label}{img_name[1]}"))
+    img.save(os.path.join(heatmap_dir, f"{img_name[0]}{img_name[1]}"))
     # to take care of png imgs
     im = im[:, 0:3, :, :]
 
@@ -87,7 +89,7 @@ def main():
         cam_map = model.get_c(label)
         cam_map = metrics.normalizeMinMax(cam_map)
         cam_map = F.interpolate(cam_map.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)
-        cam_map = metrics.drop_Npercent(cam_map, 0)
+        # cam_map = metrics.drop_Npercent(cam_map, 0)
         opencvImage = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
         mask = np.array(cam_map.squeeze().cpu().numpy() * 255, dtype=np.uint8)
         mask = cv2.applyColorMap(mask, cv2.COLORMAP_JET)
@@ -99,5 +101,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-

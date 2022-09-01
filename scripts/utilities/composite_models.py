@@ -171,9 +171,9 @@ class AttentionMech(nn.Module):
     def __init__(self, version, ft_size):
         super(AttentionMech, self).__init__()
         versions = {'TAME': AttentionTAME,
-                    'No skip connection': AttentionV3d2dd1,
-                    'No skip + No batch norm': AttentionV3d2,
-                    'Sigmoid in feature branch': AttentionV5d1
+                    'Noskipconnection': AttentionV3d2dd1,
+                    'NoskipNobatchnorm': AttentionV3d2,
+                    'Sigmoidinfeaturebranch': AttentionV5d1
                     }
         self.attn = versions[version](ft_size)
         self.forward = self.attn.forward

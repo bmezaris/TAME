@@ -3,9 +3,8 @@
 (
 . pc_info.sh
 
-export EPOCHS=8
+export BSIZE=32
 
-# export BSIZE=8
 # export VERSION="TAME"
 # export WD=
 # export LAYERS=
