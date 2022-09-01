@@ -27,20 +27,21 @@ img_dir = os.path.join(ROOT_DIR, 'images')
 def get_arguments():
     parser = argparse.ArgumentParser(description='Generate mask for a given image-label pair with a given model')
     parser.add_argument("--snapshot_dir", type=str, default=snapshot_dir)
+    parser.add_argument("--restore-dir", type=str, default='')
     parser.add_argument("--model", type=str, default='vgg16')
-    parser.add_argument("--layers", type=str, default='features.16 features.23 features.30')
     parser.add_argument("--version", type=str, default='TAME')
+    parser.add_argument("--layers", type=str, default='features.16 features.23 features.30')
     parser.add_argument("--name", type=str, default='162_166.JPEG')
     parser.add_argument("--label", type=int, default=162)
     return parser.parse_args()
 
 
 def get_model(args):
-    args.snapshot_dir = os.path.join(args.snapshot_dir, f'{args.model}', '')
+    args.snapshot_dir = os.path.join(args.snapshot_dir, f'{args.model}_{args.version}', '')
     mdl = model_prep(args.model)
     mdl = Generic(mdl, args.layers.split(), args.version)
-    mdl.cuda()
     restore(args, mdl, istrain=False)
+    mdl.cuda()
     return mdl
 
 

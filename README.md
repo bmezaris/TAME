@@ -23,10 +23,10 @@ dataset
         ├── ILSVRC2012_val_00000002.JPEG
         └── ...
 ```
-If you have already downloaded the ILSVRC 2012 dataset and don't want to change its location, edit the paths in the file scripts/bash scripts/pc_info.sh to the location of your dataset.
+If you have already downloaded the ILSVRC 2012 dataset and don't want to change its location, edit the paths in the file `scripts/bash scripts/pc_info.sh` to the location of your dataset.
 
 ## Initial Setup
-Check that you have a working Python 3 and pip installation before proceeding.
+Check that you have a working cuda, Python 3 and pip installation before proceeding.
 - Clone this repository:
 ~~~
 git clone https://github.com/bmezaris/TAME
@@ -44,7 +44,7 @@ python3 -m venv ./venv
 ~~~
 pip install -r requirements.txt
 ~~~
-Note: you may have to install the libraries torch and torchvision separately. Follow the pip instructions [here](https://pytorch.org/get-started/locally/).
+> _**Note**_: you may have to install the libraries torch and torchvision separately. Follow the pip instructions [here](https://pytorch.org/get-started/locally/). Also, make sure you have a working matplotlib gui backend.
 
 ## Usage
 You can generate explanation maps with the pretrained attention module:
@@ -52,13 +52,15 @@ You can generate explanation maps with the pretrained attention module:
 cd "TAME/scripts/bash scripts" 
 . get_mask.sh <image_name> <label>
 ~~~
-The image will be searched in the images directory. `image_name` should contain the file extension as well. If no `image_name` and `label` are provided, runs default test with image `162_166.JPEG` and label `162`.
+The image will be searched in the `TAME/images` directory. `image_name` should contain the file extension as well. If no `image_name` and `label` are provided, runs default test with image `TAME/images/162_166.JPEG` and label `162`.
+> _**Note**_:
+If you want to load a model from a different directory, add the path to the checkpoint directory on the flag `--restore-dir`
 
 ## Training
-- To train TAME on VGG-16 or ResNet-50 from scratch, run:
+- To train TAME on VGG-16 or ResNet-50 from scratch, and generate the evaluation metrics AD, IC for the 100%, 50% and 15% masks, run:
 ~~~
 cd "scripts/bash scripts"
-. job.sh 
+. train_eval.sh 
 ~~~
 
 **OR**, for the ResNet-50 backbone with the selected loss function:

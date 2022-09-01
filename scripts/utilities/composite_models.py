@@ -9,15 +9,10 @@ import torch.nn.functional as F
 from torchvision import transforms
 from torchvision.models.feature_extraction import create_feature_extractor, get_graph_node_names
 
-sys.path.append('../../')
 
-
-class AttentionV5d1(nn.Module):
-    r"""The same as V5 but the first activation function is a sigmoid
-        ABLATION STUDY"""
-
+class AttentionTAME(nn.Module):
     def __init__(self, ft_size):
-        super(AttentionV5d1, self).__init__()
+        super(AttentionTAME, self).__init__()
         feat_height = ft_size[0][2] if ft_size[0][2] <= 56 else 56
         self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
                                                      mode='bilinear', align_corners=False)
@@ -27,7 +22,7 @@ class AttentionV5d1(nn.Module):
                                               padding=0, bias=True) for in_channels in in_channels_list])
         self.bn_channels = in_channels_list
         self.bns = nn.ModuleList([nn.BatchNorm2d(channels) for channels in self.bn_channels])
-        self.act = nn.Sigmoid()
+        self.relu = nn.ReLU()
         # for each extra layer we need 1000 more channels to input to the fuse convolution
         fuse_channels = sum(in_channels_list)
         # noinspection PyTypeChecker
@@ -44,7 +39,7 @@ class AttentionV5d1(nn.Module):
         # add (skip connection)
         class_maps = [class_map + feature_map for class_map, feature_map in zip(class_maps, feature_maps)]
         # activation
-        class_maps = [self.act(class_map) for class_map in class_maps]
+        class_maps = [self.relu(class_map) for class_map in class_maps]
         # upscale
         class_maps = [self.interpolate(feature) for feature in class_maps]
         # concat
@@ -92,46 +87,6 @@ class AttentionV3d2dd1(nn.Module):
         return a, c
 
 
-class AttentionV4d1dd4(nn.Module):
-    r"""The same as V4.1.3 but inner conv doesn't have bias"""
-
-    def __init__(self, ft_size):
-        super(AttentionV4d1dd4, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n > 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-2])) for height in feat_heights]])
-        feat_height = ft_size[int((len(ft_size) - 1) / 2)][2]
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=False)
-                                    for in_channels in in_channels_list])
-        self.bns = nn.ModuleList([nn.BatchNorm2d(channels) for channels in [1000] * 3])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, feature_maps)]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [op(feature) for op, feature in zip(self.bns, class_maps)]
-        class_maps = [self.relu(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# a bit worse than V3.1, faster
 class AttentionV3d2(nn.Module):
     r"""the same as V3.1 but the first conv layers retain the dimensionality"""
 
@@ -165,12 +120,12 @@ class AttentionV3d2(nn.Module):
         return a, c
 
 
-# better than 4.1.3 in 15% mark
-class AttentionTAME(nn.Module):
-    r"""The same as V3 but we use an identity block instead of a pointwise conv, and the channels don't increase"""
+class AttentionV5d1(nn.Module):
+    r"""The same as V5 but the first activation function is a sigmoid
+        ABLATION STUDY"""
 
     def __init__(self, ft_size):
-        super(AttentionTAME, self).__init__()
+        super(AttentionV5d1, self).__init__()
         feat_height = ft_size[0][2] if ft_size[0][2] <= 56 else 56
         self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
                                                      mode='bilinear', align_corners=False)
@@ -180,7 +135,7 @@ class AttentionTAME(nn.Module):
                                               padding=0, bias=True) for in_channels in in_channels_list])
         self.bn_channels = in_channels_list
         self.bns = nn.ModuleList([nn.BatchNorm2d(channels) for channels in self.bn_channels])
-        self.relu = nn.ReLU()
+        self.act = nn.Sigmoid()
         # for each extra layer we need 1000 more channels to input to the fuse convolution
         fuse_channels = sum(in_channels_list)
         # noinspection PyTypeChecker
@@ -197,7 +152,7 @@ class AttentionTAME(nn.Module):
         # add (skip connection)
         class_maps = [class_map + feature_map for class_map, feature_map in zip(class_maps, feature_maps)]
         # activation
-        class_maps = [self.relu(class_map) for class_map in class_maps]
+        class_maps = [self.act(class_map) for class_map in class_maps]
         # upscale
         class_maps = [self.interpolate(feature) for feature in class_maps]
         # concat
@@ -210,430 +165,16 @@ class AttentionTAME(nn.Module):
         return a, c
 
 
-# better than 3.1 in 15% mark, worse overall
-class AttentionV4d1dd3(nn.Module):
-    r"""The same as V4.1 but before each ReLU there is a batch normalization layer"""
-
-    def __init__(self, ft_size):
-        super(AttentionV4d1dd3, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n > 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-2])) for height in feat_heights]])
-        feat_height = ft_size[int((len(ft_size) - 1) / 2)][2]
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        self.bn_channels = 3 * [1000]
-        self.bns = nn.ModuleList([nn.BatchNorm2d(channels) for channels in self.bn_channels])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, feature_maps)]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [op(feature) for op, feature in zip(self.bns, class_maps)]
-        class_maps = [self.relu(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# improvement over 4.1
-class AttentionV3d1(nn.Module):
-    r"""the same as V3 but the inbetween activation layer is ReLU"""
-
-    def __init__(self, ft_size):
-        super(AttentionV3d1, self).__init__()
-        feat_height = ft_size[0][2] if ft_size[0][2] <= 56 else 56
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [torch.relu(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# bad results
-class AttentionV4d1dd2(nn.Module):
-    r"""The same as V4.1 but the second activation function is also ReLU"""
-
-    def __init__(self, ft_size):
-        super(AttentionV4d1dd2, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n > 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-2])) for height in feat_heights]])
-        feat_height = ft_size[int((len(ft_size) - 1) / 2)][2]
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, feature_maps)]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [self.relu(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = self.relu(c)
-
-        return a, c
-
-
-# no improvement on 4.1
-class AttentionV4d3dd2(nn.Module):
-    r"""The same as V4.3 but the in-between output of the relu activation function is also passed through a dropout
-    layer."""
-
-    def __init__(self, ft_size):
-        super(AttentionV4d3dd2, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n > 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-2])) for height in feat_heights]])
-        feat_height = ft_size[int((len(ft_size) - 1) / 2)][2]
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout2d(p=0.5)
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, feature_maps)]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [self.relu(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        class_maps = self.dropout(class_maps)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-        a = self.dropout(a)
-
-        return a, c
-
-
-# no improvement on 4.1
-class AttentionV4d3(nn.Module):
-    r"""The same as V4.1 but the output masks are passed through a dropout layer."""
-
-    def __init__(self, ft_size):
-        super(AttentionV4d3, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n > 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-2])) for height in feat_heights]])
-        feat_height = ft_size[int((len(ft_size) - 1) / 2)][2]
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout2d()
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, feature_maps)]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [self.relu(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-        a = self.dropout(a)
-
-        return a, c
-
-
-# bad results
-class AttentionV4d2(nn.Module):
-    r"""Tested only with three layers. Same as V4.1 but instead of changing dimensions with avg-pool and interpolate,
-        we used strided convolution to reduce the dimension of the biggest dimensionality feature and transposed
-        convolution to increase the dimension of the smallest dimensionality feature"""
-
-    def __init__(self, ft_size):
-        super(AttentionV4d2, self).__init__()
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = [nn.Conv2d(in_channels=in_channels_list[0], out_channels=1000, kernel_size=1, padding=0,
-                                stride=2,
-                                bias=True)]
-        self.convs.append(nn.Conv2d(in_channels=in_channels_list[1], out_channels=1000, kernel_size=1, padding=0,
-                                    bias=True))
-        self.convs.append(nn.ConvTranspose2d(in_channels=in_channels_list[2], out_channels=1000, kernel_size=1,
-                                             padding=0,
-                                             stride=2,
-                                             output_padding=1,
-                                             bias=True))
-        self.convs = nn.ModuleList(self.convs)
-
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [self.relu(class_map) for class_map in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# big improvement over 4, better than 3
-class AttentionV4d1(nn.Module):
-    r"""The same as V4 but in the V2 part, the first activation function is changed from sigmoid to relu"""
-
-    def __init__(self, ft_size):
-        super(AttentionV4d1, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n > 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-2])) for height in feat_heights]])
-        feat_height = ft_size[int((len(ft_size) - 1) / 2)][2]
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        self.relu = nn.ReLU()
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, feature_maps)]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [self.relu(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# not as good as V3, but faster
-class AttentionV4(nn.Module):
-    r"""Tested only with three layers, The biggest dimensionality feature gets avg-pool-ed down and the smallest gets
-        interpolated up to the dimensions of the middle feature. The rest is the same as V2"""
-
-    def __init__(self, ft_size):
-        super(AttentionV4, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n > 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-2])) for height in feat_heights]])
-        feat_height = ft_size[int((len(ft_size) - 1) / 2)][2]
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, feature_maps)]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [torch.sigmoid(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# big improvement over V2, worse on 15% AD-IC
-class AttentionV3(nn.Module):
-    r"""Features are brought up to the dimension of the biggest H feature, the rest is the same as V2"""
-
-    def __init__(self, ft_size):
-        super(AttentionV3, self).__init__()
-        feat_height = ft_size[0][2] if ft_size[0][2] <= 56 else 56
-        self.interpolate = lambda inp: F.interpolate(inp, size=(feat_height, feat_height),
-                                                     mode='bilinear', align_corners=False)
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = features.values()
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [torch.sigmoid(class_map) for class_map in class_maps]
-        class_maps = [self.interpolate(feature) for feature in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# improvement over V1, worse on the 15% mark
-class AttentionV2(nn.Module):
-    r"""Features are first brought down to the dimension of the smallest H feature, pass through separate conv
-         (1000 output channels), get concatenated, and are passed through the same conv layer (1000 output channels)"""
-
-    def __init__(self, ft_size):
-        super(AttentionV2, self).__init__()
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n != 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-1])) for height in feat_heights]])
-        in_channels_list = [o[1] for o in ft_size]
-        # noinspection PyTypeChecker
-        self.convs = nn.ModuleList([nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0,
-                                              bias=True)
-                                    for in_channels in in_channels_list])
-        # for each extra layer we need 1000 more channels to input to the fuse convolution
-        fuse_channels = len(ft_size) * 1000
-        # noinspection PyTypeChecker
-        self.fuser = nn.Conv2d(in_channels=fuse_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = [op(feature) for op, feature in zip(self.avgpools, features.values())]
-        # Now all feature map sets are of the same HxW
-        class_maps = [op(feature) for op, feature in zip(self.convs, feature_maps)]
-        class_maps = [torch.sigmoid(class_map) for class_map in class_maps]
-        class_maps = torch.cat(class_maps, 1)
-        c = self.fuser(class_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
-# overall improvement over using one layer
-class AttentionV1(nn.Module):
-    r"""Features are brought down to the same dimension as the smallest H features by using avgpools, get concatenated
-     and are then passed through the same conv layer """
-
-    def __init__(self, ft_size):
-        super(AttentionV1, self).__init__()
-        in_channels = sum(o[1] for o in ft_size)
-        # noinspection PyTypeChecker
-        self.op = nn.Conv2d(in_channels=in_channels, out_channels=1000, kernel_size=1, padding=0, bias=True)
-        feat_heights = [o[2] for o in ft_size]
-        self.avgpools = nn.ModuleList([nn.AvgPool2d(2 ** n) if n != 0 else nn.Identity() for n in
-                                       [round(log2(height) - log2(feat_heights[-1])) for height in feat_heights]])
-
-    def forward(self, features):
-        # Fusion Strategy
-        feature_maps = torch.cat([op(feature) for op, feature in zip(self.avgpools, features.values())], 1)
-        # Now all feature map sets are contained on a single tensor
-
-        c = self.op(feature_maps)  # batch_size x1xWxH
-        a = torch.sigmoid(c)
-
-        return a, c
-
-
 class AttentionMech(nn.Module):
     r"""The attention mechanism component of Generic"""
 
     def __init__(self, version, ft_size):
         super(AttentionMech, self).__init__()
-        versions = {'V1': AttentionV1,
-                    'V2': AttentionV2,
-                    'V3': AttentionV3,
-                    'V4': AttentionV4,
-                    'V4.1': AttentionV4d1,
-                    'V4.2': AttentionV4d2,
-                    'V4.3': AttentionV4d3,
-                    'V4.3.2': AttentionV4d3dd2,
-                    'V4.1.2': AttentionV4d1dd2,
-                    'V3.1': AttentionV3d1,
-                    'V4.1.3': AttentionV4d1dd3,
-                    'TAME': AttentionTAME,
-                    'V3.2': AttentionV3d2,
-                    'V4.1.4': AttentionV4d1dd4,
-                    'V3.2.1': AttentionV3d2dd1,
-                    'V5.1': AttentionV5d1}
+        versions = {'TAME': AttentionTAME,
+                    'No skip connection': AttentionV3d2dd1,
+                    'No skip + No batch norm': AttentionV3d2,
+                    'Sigmoid in feature branch': AttentionV5d1
+                    }
         self.attn = versions[version](ft_size)
         self.forward = self.attn.forward
 

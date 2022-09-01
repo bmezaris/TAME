@@ -10,10 +10,7 @@ def compare_plots(paths, names, window=None, **kwargs):
     for path in paths:
         with open(path, mode='r') as f:
             x, y = json.load(f)
-            if 'idx' in kwargs and 'all' in path:
-                data.append((x, y[kwargs['idx']]))
-            else:
-                data.append((x, y))
+            data.append((x, y))
 
     if window is not None:
         fig, [ax1, ax2] = plt.subplots(1, 2)
@@ -73,28 +70,16 @@ def plot(json_file, window=None, name=None):
         ax2.set_yscale('log')
         ax2.set_ylabel('Loss')
         ax2.set_title('With Exponential Smoothing + Moving Average', fontsize=10)
-        if 'all' in json_file:
-            for yi in y:
-                average_y = []
-                for ind in range(len(yi) - window + 1):
-                    average_y.append(np.mean(yi[ind:ind + window]))
 
-                for ind in range(window - 1):
-                    average_y.insert(0, np.nan)
+        average_y = []
+        for ind in range(len(y) - window + 1):
+            average_y.append(np.mean(y[ind:ind + window]))
 
-                ax1.plot(x, yi)
-                ax2.plot(x, average_y)
-            fig.legend(['Total Loss', 'CE Loss', 'Area Loss', 'Var Loss'])
-        else:
-            average_y = []
-            for ind in range(len(y) - window + 1):
-                average_y.append(np.mean(y[ind:ind + window]))
+        for ind in range(window - 1):
+            average_y.insert(0, np.nan)
 
-            for ind in range(window - 1):
-                average_y.insert(0, np.nan)
-
-            ax1.plot(x, y)
-            ax2.plot(x, average_y)
+        ax1.plot(x, y)
+        ax2.plot(x, average_y)
 
         ax1.grid()
         ax2.grid()
@@ -106,11 +91,7 @@ def plot(json_file, window=None, name=None):
         plt.yscale('log')
         plt.ylabel('Loss')
 
-        if 'all' in json_file:
-            for yi in y:
-                plt.plot(x, yi)
-        else:
-            plt.plot(x, y)
+        plt.plot(x, y)
 
         plt.grid()
 
@@ -157,20 +138,15 @@ def main():
             try:
                 file_idxs = file_idxs.split(",")
                 (names, paths) = ([file_list[int(j) - 1][i] for j in file_idxs] for i in range(0, 2))
-                if any('all' in name for name in names):
-                    idx = input('Do you want to compare: \n    1) Total Loss\n    2) CE Loss\n'
-                                '    3) Area Loss\n    4) Var Loss\n')
-                    idx = int(idx) - 1
-                    compare_plots(paths, names, window, idx=idx)
-                else:
-                    compare_plots(paths, names, window)
+
+                compare_plots(paths, names, window)
 
             except ValueError or IndexError:
                 print('Input a valid number from the list')
                 raise
         return
 
-    raise ValueError("You can't save comparison plots!")
+    raise ValueError("To save comparison plots, use the gui environment")
 
 
 if __name__ == '__main__':

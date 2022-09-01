@@ -4,8 +4,10 @@ import torch
 
 
 def restore(args, model, optimizer=None, istrain=True):
-
-    restore_dir = args.snapshot_dir
+    if args.restore_dir != '':
+        restore_dir = args.restore_dir
+    else:
+        restore_dir = args.snapshot_dir
     filelist = os.listdir(restore_dir)
     filelist = [x for x in filelist if os.path.isfile(os.path.join(restore_dir, x)) and x.endswith('.pt')]
     if len(filelist) > 0:
